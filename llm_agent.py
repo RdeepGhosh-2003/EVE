@@ -155,8 +155,10 @@ class EVAgent:
                 content = msg.get("content", "")
                 if role == "user":
                     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
-                elif role == "assistant" or role == "model":
+                elif role in ("assistant", "model"):
                     contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
+                elif role == "tool":
+                    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=f"[Tool Result for {msg.get('name', 'tool')}]\n{content}")]))
 
             config = types.GenerateContentConfig(
                 system_instruction=self.system_prompt,
@@ -172,10 +174,9 @@ class EVAgent:
 
             self.last_latency_ms = int((time.time() - start_time) * 1000)
 
-            # Handle Function Calling
+            # Handle Function Calling & Memory Retention
             if response.function_calls:
                 logger.info(f"Gemini requested {len(response.function_calls)} tool call(s).")
-                tool_results_summary = []
                 for function_call in response.function_calls:
                     fn_name = function_call.name
                     fn_args = dict(function_call.args) if function_call.args else {}
@@ -183,21 +184,38 @@ class EVAgent:
                     logger.info(f"Executing tool '{fn_name}' with args {fn_args}...")
                     tool_result = execute_tool(fn_name, fn_args)
                     res_str = str(tool_result)
-                    tool_results_summary.append(f"Tool '{fn_name}' result: {res_str}")
+                    
+                    # Persist tool request and tool output in conversation history
+                    self.conversation_history.append({
+                        "role": "model",
+                        "content": f"[Tool Call] Executed {fn_name} with parameters: {json.dumps(fn_args)}"
+                    })
+                    self.conversation_history.append({
+                        "role": "tool",
+                        "name": fn_name,
+                        "content": res_str
+                    })
 
-                # Send tool execution result back to Gemini for final response
-                tool_summary_text = "\n".join(tool_results_summary)
-                contents.append(types.Content(role="model", parts=[types.Part.from_text(text=f"[Executed Tools]\n{tool_summary_text}")]))
-                contents.append(types.Content(role="user", parts=[types.Part.from_text(text="Summarize tool execution result for the user in 1 short sentence.")]))
+                # Rebuild contents payload with newly recorded tool memory
+                updated_contents = []
+                for msg in self.conversation_history:
+                    role = msg.get("role")
+                    content = msg.get("content", "")
+                    if role == "user":
+                        updated_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
+                    elif role in ("assistant", "model"):
+                        updated_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
+                    elif role == "tool":
+                        updated_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=f"[Tool Result for {msg.get('name', 'tool')}]\n{content}")]))
 
                 final_response = self.client.models.generate_content(
                     model=self.model_name,
-                    contents=contents,
+                    contents=updated_contents,
                     config=config
                 )
                 self.last_latency_ms = int((time.time() - start_time) * 1000)
 
-                raw_final = final_response.text or tool_summary_text
+                raw_final = final_response.text or "Tool execution completed."
                 clean_final, thought_process = strip_thought_process(raw_final)
                 if thought_process:
                     logger.info(f"[Chain of Thought]\n{thought_process}")

@@ -21,6 +21,7 @@ scapy
 wmi
 requests
 screeninfo
-pvporcupine
+openwakeword
+onnxruntime
 playwright
 google-search-results

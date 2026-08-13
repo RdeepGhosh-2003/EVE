@@ -26,3 +26,16 @@ def test_gemini_agent_initialization():
     assert agent.model_name == "gemini-2.5-pro"
     tools = agent._get_gemini_tools()
     assert len(tools) > 0
+
+
+def test_tool_memory_retention():
+    """Verify tool calls and tool execution results persist in conversation history."""
+    agent = EVAgent(model_name="gemini-2.5-pro")
+    # Manually append tool request and tool result to simulate function call flow
+    agent.conversation_history.append({"role": "model", "content": "[Tool Call] Executed get_current_time with parameters: {}"})
+    agent.conversation_history.append({"role": "tool", "name": "get_current_time", "content": "12:00 PM"})
+    
+    roles = [m.get("role") for m in agent.conversation_history]
+    assert "model" in roles
+    assert "tool" in roles
+

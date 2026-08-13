@@ -52,16 +52,14 @@ class AudioHandler:
         self.interrupted = False
         self.mic_busy = False
 
-        self.porcupine = None
-        porcupine_key = os.getenv("PORCUPINE_ACCESS_KEY")
-        if porcupine_key:
-            try:
-                import pvporcupine
-                keywords = ["bumblebee", "porcupine", "jarvis"]
-                self.porcupine = pvporcupine.create(access_key=porcupine_key, keywords=keywords)
-                logger.info(f"[Porcupine] Initialized passive wake word engine for keywords: {keywords}")
-            except Exception as e:
-                logger.warning(f"[Porcupine] Initialization fallback: {e}")
+        self.oww_model = None
+        try:
+            import openwakeword
+            from openwakeword.model import Model
+            self.oww_model = Model(inference_framework="onnx")
+            logger.info("[OpenWakeWord] Initialized local open-source wake word model engine.")
+        except Exception as e:
+            logger.warning(f"[OpenWakeWord] Open-source wake word model init fallback: {e}")
 
         try:
             pygame.mixer.init()
@@ -93,35 +91,48 @@ class AudioHandler:
             return [], 50
 
     def listen_for_wakeword(self) -> bool:
-        """Blocks passively and waits for wake word (Porcupine or passive energy threshold)."""
-        if self.porcupine:
+        """Blocks passively and waits for wake word using OpenWakeWord local model or energy gate fallback."""
+        if self.oww_model:
             try:
                 import pyaudio
-                import struct
+                import numpy as np
+
+                CHUNK = 1280
                 pa = pyaudio.PyAudio()
                 audio_stream = pa.open(
-                    rate=self.porcupine.sample_rate,
+                    rate=16000,
                     channels=1,
                     format=pyaudio.paInt16,
                     input=True,
-                    frames_per_buffer=self.porcupine.frame_length
+                    frames_per_buffer=CHUNK
                 )
-                logger.info("[Porcupine] Blocking & waiting passively for wake word...")
+                logger.info("[OpenWakeWord] Blocking & listening passively for open-source wake word...")
+                start_time = time.time()
+
                 while True:
-                    pcm = audio_stream.read(self.porcupine.frame_length, exception_on_overflow=False)
-                    pcm_unpacked = struct.unpack_from("h" * self.porcupine.frame_length, pcm)
-                    keyword_index = self.porcupine.process(pcm_unpacked)
-                    if keyword_index >= 0:
-                        logger.info(f"[Porcupine] Wake word detected! (keyword index {keyword_index})")
+                    if time.time() - start_time > 10:
                         audio_stream.stop_stream()
                         audio_stream.close()
                         pa.terminate()
-                        return True
+                        return False
+
+                    data = audio_stream.read(CHUNK, exception_on_overflow=False)
+                    audio_data = np.frombuffer(data, dtype=np.int16)
+                    prediction = self.oww_model.predict(audio_data)
+
+                    for mdl_name, score in prediction.items():
+                        if score >= 0.5:
+                            logger.info(f"[OpenWakeWord] Local Wake word detected! Model: '{mdl_name}', score={score:.2f}")
+                            audio_stream.stop_stream()
+                            audio_stream.close()
+                            pa.terminate()
+                            return True
+
             except Exception as e:
-                logger.warning(f"[Porcupine] Passive listener exception, fallback: {e}")
+                logger.warning(f"[OpenWakeWord] Passive listener exception, fallback to energy gate: {e}")
                 time.sleep(0.5)
 
-        # Fallback passive energy gate when Porcupine key omitted:
+        # Fallback passive energy gate when model is loading or omitted:
         try:
             with sr.Microphone() as source:
                 self.recognizer.energy_threshold = 600
