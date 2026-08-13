@@ -341,7 +341,7 @@ def eve_voice_loop():
             amplitude_callback=broadcast_audio_amplitude,
             error_callback=handle_audio_error
         )
-        agent = EVAgent(model_name="gemini-3.1-pro")
+        agent = EVAgent(model_name="gemini-3.1-pro-preview")
         eve_agent_instance = agent
         audio_handler_instance = audio_handler
     except Exception as e:
