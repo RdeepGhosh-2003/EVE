@@ -50,3 +50,27 @@ def test_empty_content_sanitization():
     assert sanitized == "[No text provided]"
 
 
+def test_exponential_backoff_rate_limit_retry():
+    """Verify _generate_content_with_retry retries on 429 RESOURCE_EXHAUSTED errors."""
+    agent = EVAgent(model_name="gemini-3.5-flash")
+    attempts = 0
+
+    class DummyClient:
+        class DummyModels:
+            def generate_content(self, model, contents, config):
+                nonlocal attempts
+                attempts += 1
+                if attempts < 2:
+                    raise Exception("429 RESOURCE_EXHAUSTED Quota exceeded")
+                class DummyResponse:
+                    text = "Success response after retry"
+                    function_calls = None
+                return DummyResponse()
+        models = DummyModels()
+
+    agent.client = DummyClient()
+    resp = agent._generate_content_with_retry(contents=[], config=None, max_retries=3, initial_delay=0.01)
+    assert resp.text == "Success response after retry"
+    assert attempts == 2
+
+

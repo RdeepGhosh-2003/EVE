@@ -132,8 +132,27 @@ class EVAgent:
         logger.info(f"[Persona] Switched to '{name}' persona.")
         return f"Persona switched to {name}."
 
+    def _generate_content_with_retry(self, contents, config, max_retries: int = 5, initial_delay: float = 2.0):
+        """Executes generate_content with exponential backoff retry for 429 RESOURCE_EXHAUSTED errors."""
+        delay = initial_delay
+        for attempt in range(1, max_retries + 1):
+            try:
+                return self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=config
+                )
+            except Exception as e:
+                err_str = str(e)
+                if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "Quota exceeded" in err_str) and attempt < max_retries:
+                    logger.warning(f"[RateLimit 429] Quota hit. Retrying in {delay:.1f}s (Attempt {attempt}/{max_retries})...")
+                    time.sleep(delay)
+                    delay *= 2.0
+                else:
+                    raise e
+
     def chat(self, user_input: str) -> str:
-        """Sends user prompt to Google Gemini API with Function Calling & Chain of Thought reasoning."""
+        """Sends user prompt to Google Gemini API with Function Calling, Exponential Backoff & Chain of Thought reasoning."""
         if not user_input or not user_input.strip():
             return "I didn't catch that. Could you please repeat?"
 
@@ -169,11 +188,7 @@ class EVAgent:
                 temperature=0.3
             )
 
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=config
-            )
+            response = self._generate_content_with_retry(contents, config)
 
             self.last_latency_ms = int((time.time() - start_time) * 1000)
 
@@ -214,11 +229,7 @@ class EVAgent:
                     elif role == "assistant" or role == "model":
                         updated_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
 
-                final_response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=updated_contents,
-                    config=config
-                )
+                final_response = self._generate_content_with_retry(updated_contents, config)
                 self.last_latency_ms = int((time.time() - start_time) * 1000)
 
                 raw_final = final_response.text or "Tool execution completed."
