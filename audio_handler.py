@@ -121,7 +121,7 @@ class AudioHandler:
                     prediction = self.oww_model.predict(audio_data)
 
                     for mdl_name, score in prediction.items():
-                        if score >= 0.5:
+                        if score >= 0.35:
                             logger.info(f"[OpenWakeWord] Local Wake word detected! Model: '{mdl_name}', score={score:.2f}")
                             audio_stream.stop_stream()
                             audio_stream.close()

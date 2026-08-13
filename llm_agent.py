@@ -153,12 +153,10 @@ class EVAgent:
             for msg in self.conversation_history:
                 role = msg.get("role")
                 content = msg.get("content", "")
-                if role == "user":
+                if role == "user" or role == "tool":
                     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
-                elif role in ("assistant", "model"):
+                elif role == "assistant" or role == "model":
                     contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
-                elif role == "tool":
-                    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=f"[Tool Result for {msg.get('name', 'tool')}]\n{content}")]))
 
             config = types.GenerateContentConfig(
                 system_instruction=self.system_prompt,
@@ -201,12 +199,10 @@ class EVAgent:
                 for msg in self.conversation_history:
                     role = msg.get("role")
                     content = msg.get("content", "")
-                    if role == "user":
+                    if role == "user" or role == "tool":
                         updated_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
-                    elif role in ("assistant", "model"):
+                    elif role == "assistant" or role == "model":
                         updated_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
-                    elif role == "tool":
-                        updated_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=f"[Tool Result for {msg.get('name', 'tool')}]\n{content}")]))
 
                 final_response = self.client.models.generate_content(
                     model=self.model_name,
