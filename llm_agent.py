@@ -152,7 +152,12 @@ class EVAgent:
             contents = []
             for msg in self.conversation_history:
                 role = msg.get("role")
-                content = msg.get("content", "")
+                content = str(msg.get("content", "")).strip()
+
+                # Gemini SDK throws 400 ERROR if text is completely empty
+                if not content:
+                    content = "[No text provided]"
+
                 if role == "user" or role == "tool":
                     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
                 elif role == "assistant" or role == "model":
@@ -198,7 +203,12 @@ class EVAgent:
                 updated_contents = []
                 for msg in self.conversation_history:
                     role = msg.get("role")
-                    content = msg.get("content", "")
+                    content = str(msg.get("content", "")).strip()
+
+                    # Gemini SDK throws 400 ERROR if text is completely empty
+                    if not content:
+                        content = "[No text provided]"
+
                     if role == "user" or role == "tool":
                         updated_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
                     elif role == "assistant" or role == "model":

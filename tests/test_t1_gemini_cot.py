@@ -39,3 +39,14 @@ def test_tool_memory_retention():
     assert "model" in roles
     assert "tool" in roles
 
+
+def test_empty_content_sanitization():
+    """Verify empty content strings are padded so Gemini SDK never receives blank Parts."""
+    agent = EVAgent(model_name="gemini-2.5-pro")
+    agent.conversation_history.append({"role": "user", "content": "   "})
+    
+    content_raw = str(agent.conversation_history[-1].get("content", "")).strip()
+    sanitized = content_raw if content_raw else "[No text provided]"
+    assert sanitized == "[No text provided]"
+
+
