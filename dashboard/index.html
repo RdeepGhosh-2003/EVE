@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVE</title>
+
+    <!-- Local Three.js for 3D Neural Sphere (Zero CDN Dependency) -->
+    <script src="/dashboard/three.min.js"></script>
+
+    <link rel="stylesheet" href="/dashboard/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Minimalist Glass Header -->
+        <header class="app-header glass-card">
+            <div class="brand">
+                <span class="logo-dot"></span>
+                <span class="brand-title">EVE</span>
+            </div>
+            <div class="header-metrics">
+                <div class="metric-chip">
+                    <span class="chip-label">LATENCY</span>
+                    <span id="stat-latency" class="chip-val blue">-- ms</span>
+                </div>
+                <div class="metric-chip">
+                    <span class="chip-label">QUERIES</span>
+                    <span id="stat-queries" class="chip-val">0</span>
+                </div>
+                <div class="metric-chip">
+                    <span class="chip-label">PERSONA</span>
+                    <span id="persona-val" class="chip-val blue">JARVIS</span>
+                </div>
+            </div>
+            <div class="header-controls">
+                <div id="digital-clock" class="clock-time">00:00:00 AM</div>
+                <button id="btn-shutdown" class="btn-power" title="Power off EVE">POWER OFF</button>
+            </div>
+        </header>
+
+
+        <!-- Main Workspace Grid -->
+        <main class="app-main">
+            <!-- Left Column: System Telemetry & Google Weather Card -->
+            <section class="col-left">
+                <!-- System Telemetry Glass Card -->
+                <div class="glass-card panel-card">
+                    <div class="card-title">
+                        <span>SYSTEM TELEMETRY</span>
+                        <span class="status-pulse"></span>
+                    </div>
+                    <div class="card-body telemetry-grid">
+                        <div class="telemetry-item">
+                            <div class="item-label">CPU LOAD</div>
+                            <div id="cpu-val" class="item-value">0%</div>
+                            <div class="bar-track"><div id="cpu-bar" class="bar-fill blue-fill" style="width: 0%;"></div></div>
+                        </div>
+                        <div class="telemetry-item">
+                            <div class="item-label">CPU TEMP</div>
+                            <div id="cpu-temp-val" class="item-value">--°C</div>
+                            <div class="bar-track"><div id="cpu-temp-bar" class="bar-fill orange-fill" style="width: 0%;"></div></div>
+                        </div>
+                        <div class="telemetry-item">
+                            <div class="item-label">MEMORY</div>
+                            <div id="ram-val" class="item-value">0%</div>
+                            <div class="bar-track"><div id="ram-bar" class="bar-fill" style="width: 0%;"></div></div>
+                        </div>
+                        <div class="net-row">
+                            <span class="net-pill">⬇ <span id="net-rx">0.0 KB/s</span></span>
+                            <span class="net-pill">⬆ <span id="net-tx">0.0 KB/s</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Google Weather Glass Card -->
+                <div class="glass-card weather-card">
+                    <div id="weather-day-header" class="gw-header-line">Wednesday • Bengaluru, Karnataka</div>
+                    
+                    <div class="gw-main-display">
+                        <span id="weather-main-icon" class="gw-icon">⛅</span>
+                        <div class="gw-temp-group">
+                            <span id="weather-temp" class="gw-huge-temp" title="Click to toggle °C / °F">23</span>
+                            <span id="btn-toggle-unit" class="gw-unit-toggle" title="Click to toggle °C / °F">°C | °F</span>
+                        </div>
+                    </div>
+
+                    <div id="weather-cond" class="gw-cond-text">Mostly cloudy</div>
+                    <div id="weather-details" class="gw-details-line">High: --°  Low: --°  Precip: 0%</div>
+
+                    <!-- 7-Column Timeline Row -->
+                    <div id="hourly-timeline" class="gw-timeline-7col">
+                        <!-- 7 hourly pills populated by JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Center Column: Freely Floating 3D Orb (No Background Card Box) -->
+            <section class="col-center">
+                <div class="state-pills">
+                    <span class="state-pill active" id="badge-idle">IDLE</span>
+                    <span class="state-pill" id="badge-listening">LISTENING</span>
+                    <span class="state-pill" id="badge-thinking">THINKING</span>
+                    <span class="state-pill" id="badge-speaking">SPEAKING</span>
+                </div>
+
+                <div class="orb-container">
+                    <div class="orb-ambient-glow" id="ambient-glow"></div>
+                    <div id="three-container"></div>
+                </div>
+
+                <div class="spectrum-container" id="waveform">
+                    <div class="spec-bar"></div><div class="spec-bar"></div><div class="spec-bar"></div><div class="spec-bar"></div>
+                    <div class="spec-bar"></div><div class="spec-bar"></div><div class="spec-bar"></div><div class="spec-bar"></div>
+                    <div class="spec-bar"></div><div class="spec-bar"></div><div class="spec-bar"></div><div class="spec-bar"></div>
+                </div>
+            </section>
+
+            <!-- Right Column: Terminal Feed & Interactive Network Security Radar -->
+            <section class="col-right">
+                <!-- Terminal Feed Card -->
+                <div class="glass-card feed-card">
+                    <div class="card-title">
+                        <span>LIVE TERMINAL</span>
+                        <span id="conn-status" class="status-online">ONLINE</span>
+                    </div>
+                    <div class="feed-content" id="terminal-feed">
+                        <div class="feed-line system">[SYSTEM] EVE Engine Online. Say "Eve"...</div>
+                    </div>
+                </div>
+
+            </section>
+        </main>
+    </div>
+
+    <script src="/dashboard/script.js"></script>
+</body>
+</html>
