@@ -21,16 +21,16 @@ def test_strip_thought_process():
 
 
 def test_gemini_agent_initialization():
-    """Verify EVAgent defaults to gemini-3.1-pro-preview model."""
+    """Verify EVAgent defaults to gemini-1.5-flash model."""
     agent = EVAgent()
-    assert agent.model_name == "gemini-3.1-pro-preview"
+    assert agent.model_name == "gemini-1.5-flash"
     tools = agent._get_gemini_tools()
     assert len(tools) > 0
 
 
 def test_tool_memory_retention():
     """Verify tool calls and tool execution results persist in conversation history."""
-    agent = EVAgent(model_name="gemini-3.1-pro-preview")
+    agent = EVAgent(model_name="gemini-1.5-flash")
     # Manually append tool request and tool result to simulate function call flow
     agent.conversation_history.append({"role": "model", "content": "[Tool Call] Executed get_current_time with parameters: {}"})
     agent.conversation_history.append({"role": "tool", "name": "get_current_time", "content": "12:00 PM"})
@@ -42,7 +42,7 @@ def test_tool_memory_retention():
 
 def test_empty_content_sanitization():
     """Verify empty content strings are padded so Gemini SDK never receives blank Parts."""
-    agent = EVAgent(model_name="gemini-3.1-pro-preview")
+    agent = EVAgent(model_name="gemini-1.5-flash")
     agent.conversation_history.append({"role": "user", "content": "   "})
     
     content_raw = str(agent.conversation_history[-1].get("content", "")).strip()

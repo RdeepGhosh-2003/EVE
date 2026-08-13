@@ -55,7 +55,7 @@ def strip_thought_process(text: str) -> tuple[str, str]:
     return clean_text, thought_text
 
 class EVAgent:
-    def __init__(self, model_name: str = "gemini-3.1-pro-preview", system_prompt: str = None):
+    def __init__(self, model_name: str = "gemini-1.5-flash", system_prompt: str = None):
         self.model_name = model_name
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
