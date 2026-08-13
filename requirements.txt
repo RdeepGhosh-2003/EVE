@@ -25,3 +25,5 @@ openwakeword
 onnxruntime
 playwright
 google-search-results
+openai
+

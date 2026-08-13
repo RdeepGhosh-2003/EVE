@@ -341,7 +341,7 @@ def eve_voice_loop():
             amplitude_callback=broadcast_audio_amplitude,
             error_callback=handle_audio_error
         )
-        agent = EVAgent(model_name="gemini-3.5-flash")
+        agent = EVAgent(model_name="qwen2.5:7b")
         eve_agent_instance = agent
         audio_handler_instance = audio_handler
     except Exception as e:
@@ -349,7 +349,7 @@ def eve_voice_loop():
         return
 
     manager.send_event("state", {"value": "IDLE"})
-    initial_greeting = "Hello! I am EVE. Advanced Intelligence Suite & Live News Online."
+    initial_greeting = "Hello! I am EVE. Connected to Ollama Local Network."
     manager.send_event("eve_speech", {"value": initial_greeting})
     try:
         manager.send_event("state", {"value": "SPEAKING"})
@@ -362,7 +362,7 @@ def eve_voice_loop():
         try:
             manager.send_event("state", {"value": "IDLE"})
 
-            # Step A: Block & wait passively for wake word (does NOT hit Groq API!)
+            # Step A: Block & wait passively for wake word (Ollama Local Network)
             detected = audio_handler.listen_for_wakeword()
             if not detected:
                 continue
