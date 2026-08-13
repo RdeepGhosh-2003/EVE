@@ -93,6 +93,8 @@ class AudioHandler:
     def listen_for_wakeword(self) -> bool:
         """Blocks passively and waits for wake word using OpenWakeWord local model or energy gate fallback."""
         if self.oww_model:
+            pa = None
+            audio_stream = None
             try:
                 import pyaudio
                 import numpy as np
@@ -111,9 +113,6 @@ class AudioHandler:
 
                 while True:
                     if time.time() - start_time > 10:
-                        audio_stream.stop_stream()
-                        audio_stream.close()
-                        pa.terminate()
                         return False
 
                     data = audio_stream.read(CHUNK, exception_on_overflow=False)
@@ -123,14 +122,23 @@ class AudioHandler:
                     for mdl_name, score in prediction.items():
                         if score >= 0.35:
                             logger.info(f"[OpenWakeWord] Local Wake word detected! Model: '{mdl_name}', score={score:.2f}")
-                            audio_stream.stop_stream()
-                            audio_stream.close()
-                            pa.terminate()
                             return True
 
             except Exception as e:
                 logger.warning(f"[OpenWakeWord] Passive listener exception, fallback to energy gate: {e}")
                 time.sleep(0.5)
+            finally:
+                if audio_stream is not None:
+                    try:
+                        audio_stream.stop_stream()
+                        audio_stream.close()
+                    except Exception as stream_err:
+                        logger.warning(f"Error closing audio stream: {stream_err}")
+                if pa is not None:
+                    try:
+                        pa.terminate()
+                    except Exception as pa_err:
+                        logger.warning(f"Error terminating PyAudio instance: {pa_err}")
 
         # Fallback passive energy gate when model is loading or omitted:
         try:
