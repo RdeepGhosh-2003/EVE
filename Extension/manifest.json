@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "EVE Web Extension",
-  "version": "1.17.41",
-  "description": "EVE Web Extension with strict visible password authentication detection for SPA modals.",
+  "version": "1.17.42",
+  "description": "EVE Web Extension with strict async executeLoginFlow timing and phone field Ghost Data exclusion.",
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
