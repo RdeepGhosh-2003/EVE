@@ -253,11 +253,13 @@ class EVAgent:
             except Exception as e:
                 err_str = str(e)
                 last_err = e
-                if "404" in err_str or "NOT_FOUND" in err_str or "no longer available" in err_str or "not found for API version" in err_str:
-                    logger.warning(f"[Gemini Fallback] Model '{model_name}' unavailable ({err_str[:80]}). Trying next candidate...")
+                if any(term in err_str for term in ["404", "NOT_FOUND", "no longer available", "not found for API version", "429", "RESOURCE_EXHAUSTED", "Quota exceeded", "quota"]):
+                    logger.warning(f"[Gemini Fallback] Model '{model_name}' rate limited / unavailable ({err_str[:80]}). Trying next candidate...")
                     continue
                 else:
                     raise e
+        # If all candidates fail due to rate limit, wait briefly and retry first available
+        time.sleep(2.0)
         raise last_err
 
     def _chat_gemini_fallback(self, start_time: float) -> str:
