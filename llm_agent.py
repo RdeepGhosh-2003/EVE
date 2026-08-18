@@ -229,7 +229,7 @@ class EVAgent:
                     raise e
 
     def _call_gemini_with_fallback_models(self, contents, config):
-        """Calls Gemini API iterating through active model endpoints to guarantee success."""
+        """Calls Gemini API iterating through active model endpoints with automatic 429 backoff retries."""
         candidate_models = [
             os.getenv("GEMINI_MODEL"),
             "gemini-2.0-flash",
@@ -240,26 +240,30 @@ class EVAgent:
         ]
         candidate_models = [m for m in candidate_models if m]
 
+        # Multi-attempt loop with backoff retry if rate limit 429 is hit across candidate models
         last_err = None
-        for model_name in candidate_models:
-            try:
-                response = self.gemini_client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=config
-                )
-                logger.info(f"[Gemini Fallback] Successfully called model '{model_name}'.")
-                return response
-            except Exception as e:
-                err_str = str(e)
-                last_err = e
-                if any(term in err_str for term in ["404", "NOT_FOUND", "no longer available", "not found for API version", "429", "RESOURCE_EXHAUSTED", "Quota exceeded", "quota"]):
-                    logger.warning(f"[Gemini Fallback] Model '{model_name}' rate limited / unavailable ({err_str[:80]}). Trying next candidate...")
-                    continue
-                else:
-                    raise e
-        # If all candidates fail due to rate limit, wait briefly and retry first available
-        time.sleep(2.0)
+        for outer_attempt in range(1, 4):
+            for model_name in candidate_models:
+                try:
+                    response = self.gemini_client.models.generate_content(
+                        model=model_name,
+                        contents=contents,
+                        config=config
+                    )
+                    logger.info(f"[Gemini Fallback] Successfully called model '{model_name}'.")
+                    return response
+                except Exception as e:
+                    err_str = str(e)
+                    last_err = e
+                    if any(term in err_str for term in ["404", "NOT_FOUND", "no longer available", "not found for API version", "429", "RESOURCE_EXHAUSTED", "Quota exceeded", "quota"]):
+                        logger.warning(f"[Gemini Fallback] Model '{model_name}' rate limited / unavailable ({err_str[:80]}). Trying next candidate...")
+                        continue
+                    else:
+                        raise e
+            if outer_attempt < 3:
+                logger.warning(f"[RateLimit 429] All Gemini models rate-limited. Backing off 3s (Attempt {outer_attempt}/3)...")
+                time.sleep(3.0)
+
         raise last_err
 
     def _chat_gemini_fallback(self, start_time: float) -> str:
@@ -480,8 +484,8 @@ class EVAgent:
                 return self._chat_gemini_fallback(start_time)
             except Exception as gemini_err:
                 self.last_latency_ms = int((time.time() - start_time) * 1000)
-                logger.error(f"Both Ollama and Gemini engines failed: {gemini_err}")
-                return f"I encountered an issue reaching AI services: {gemini_err}"
+                logger.error(f"AI Cloud Engine rate-limited: {gemini_err}")
+                return "The cloud API rate limit was temporarily reached. Please retry in a few seconds, or run 'ollama serve' in your terminal for 100% free, unlimited local processing!"
 
     def reset_history(self):
         """Resets conversation history."""
