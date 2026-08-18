@@ -253,7 +253,7 @@ class EVAgent:
         )
 
         response = self.gemini_client.models.generate_content(
-            model="gemini-1.5-flash",
+            model=os.getenv("GEMINI_MODEL") or "gemini-2.5-flash",
             contents=contents,
             config=config
         )
@@ -293,7 +293,7 @@ class EVAgent:
                     updated_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
 
             final_response = self.gemini_client.models.generate_content(
-                model="gemini-1.5-flash",
+                model=os.getenv("GEMINI_MODEL") or "gemini-2.5-flash",
                 contents=updated_contents,
                 config=config
             )
