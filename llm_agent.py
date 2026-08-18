@@ -228,6 +228,38 @@ class EVAgent:
                 else:
                     raise e
 
+    def _call_gemini_with_fallback_models(self, contents, config):
+        """Calls Gemini API iterating through active model endpoints to guarantee success."""
+        candidate_models = [
+            os.getenv("GEMINI_MODEL"),
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-flash-latest",
+            "gemini-2.5-flash",
+            "gemini-3.6-flash"
+        ]
+        candidate_models = [m for m in candidate_models if m]
+
+        last_err = None
+        for model_name in candidate_models:
+            try:
+                response = self.gemini_client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config
+                )
+                logger.info(f"[Gemini Fallback] Successfully called model '{model_name}'.")
+                return response
+            except Exception as e:
+                err_str = str(e)
+                last_err = e
+                if "404" in err_str or "NOT_FOUND" in err_str or "no longer available" in err_str or "not found for API version" in err_str:
+                    logger.warning(f"[Gemini Fallback] Model '{model_name}' unavailable ({err_str[:80]}). Trying next candidate...")
+                    continue
+                else:
+                    raise e
+        raise last_err
+
     def _chat_gemini_fallback(self, start_time: float) -> str:
         """Gemini Cloud Fallback when local Ollama engine is not running or unreachable."""
         if not self.gemini_client:
@@ -252,11 +284,7 @@ class EVAgent:
             temperature=0.3
         )
 
-        response = self.gemini_client.models.generate_content(
-            model=os.getenv("GEMINI_MODEL") or "gemini-3.6-flash",
-            contents=contents,
-            config=config
-        )
+        response = self._call_gemini_with_fallback_models(contents, config)
 
         self.last_latency_ms = int((time.time() - start_time) * 1000)
 
@@ -292,11 +320,7 @@ class EVAgent:
                 elif role == "assistant" or role == "model":
                     updated_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
 
-            final_response = self.gemini_client.models.generate_content(
-                model=os.getenv("GEMINI_MODEL") or "gemini-3.6-flash",
-                contents=updated_contents,
-                config=config
-            )
+            final_response = self._call_gemini_with_fallback_models(updated_contents, config)
             self.last_latency_ms = int((time.time() - start_time) * 1000)
 
             raw_final = final_response.text or "Tool execution completed."
