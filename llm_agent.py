@@ -229,7 +229,7 @@ class EVAgent:
                     raise e
 
     def _call_gemini_with_fallback_models(self, contents, config):
-        """Calls Gemini API iterating through active model endpoints with automatic 429 backoff retries."""
+        """Calls Gemini API iterating through active API keys & model endpoints."""
         candidate_models = [
             os.getenv("GEMINI_MODEL"),
             "gemini-2.0-flash",
@@ -240,31 +240,76 @@ class EVAgent:
         ]
         candidate_models = [m for m in candidate_models if m]
 
-        # Multi-attempt loop with backoff retry if rate limit 429 is hit across candidate models
+        keys_pool = []
+        for env_var in ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
+            val = os.getenv(env_var)
+            if val and val not in keys_pool:
+                keys_pool.append(val)
+
+        if not keys_pool and self.gemini_client:
+            keys_pool = ["default"]
+
         last_err = None
-        for outer_attempt in range(1, 4):
-            for model_name in candidate_models:
-                try:
-                    response = self.gemini_client.models.generate_content(
-                        model=model_name,
-                        contents=contents,
-                        config=config
-                    )
-                    logger.info(f"[Gemini Fallback] Successfully called model '{model_name}'.")
-                    return response
-                except Exception as e:
-                    err_str = str(e)
-                    last_err = e
-                    if any(term in err_str for term in ["404", "NOT_FOUND", "no longer available", "not found for API version", "429", "RESOURCE_EXHAUSTED", "Quota exceeded", "quota"]):
-                        logger.warning(f"[Gemini Fallback] Model '{model_name}' rate limited / unavailable ({err_str[:80]}). Trying next candidate...")
-                        continue
-                    else:
-                        raise e
-            if outer_attempt < 3:
-                logger.warning(f"[RateLimit 429] All Gemini models rate-limited. Backing off 3s (Attempt {outer_attempt}/3)...")
-                time.sleep(3.0)
+        for key in keys_pool:
+            try:
+                client = self.gemini_client if key == "default" else genai.Client(api_key=key)
+            except Exception:
+                continue
+
+            for outer_attempt in range(1, 3):
+                for model_name in candidate_models:
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=contents,
+                            config=config
+                        )
+                        logger.info(f"[Gemini Fallback] Successfully called model '{model_name}'.")
+                        return response
+                    except Exception as e:
+                        err_str = str(e)
+                        last_err = e
+                        if any(term in err_str for term in ["404", "NOT_FOUND", "no longer available", "not found for API version", "429", "RESOURCE_EXHAUSTED", "Quota exceeded", "quota"]):
+                            logger.warning(f"[Gemini Fallback] Model '{model_name}' rate limited / unavailable ({err_str[:80]}). Trying next candidate...")
+                            continue
+                        else:
+                            raise e
+                if outer_attempt < 2:
+                    time.sleep(1.5)
 
         raise last_err
+
+    def _chat_groq_fallback(self, start_time: float) -> str:
+        """Groq Cloud Fallback when Gemini API keys are rate limited."""
+        from groq import Groq
+        groq_key = os.getenv("GROQ_API_KEY")
+        if not groq_key:
+            raise Exception("GROQ_API_KEY not configured")
+
+        client = Groq(api_key=groq_key)
+        messages = []
+        for msg in self.conversation_history:
+            role = msg.get("role")
+            if role == "model":
+                role = "assistant"
+            content = str(msg.get("content", "") or "").strip()
+            if not content:
+                content = "[No text provided]"
+            messages.append({"role": role, "content": content})
+
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.3
+        )
+        self.last_latency_ms = int((time.time() - start_time) * 1000)
+        raw_text = completion.choices[0].message.content or ""
+        clean_text, thought_process = strip_thought_process(raw_text)
+        final_output = clean_text if clean_text else raw_text
+        self.conversation_history.append({"role": "assistant", "content": final_output})
+        self._save_history()
+        logger.info(f"Eve (Groq Fallback, latency {self.last_latency_ms}ms): {final_output}")
+        return final_output
 
     def _chat_gemini_fallback(self, start_time: float) -> str:
         """Gemini Cloud Fallback when local Ollama engine is not running or unreachable."""
@@ -353,7 +398,7 @@ class EVAgent:
             return final_output
 
     def chat(self, user_input: str) -> str:
-        """Sends user prompt to local Ollama server with automatic Gemini cloud failover."""
+        """Sends user prompt to local Ollama server with automatic Gemini/Groq cloud failover."""
         if not user_input or not user_input.strip():
             return "I didn't catch that. Could you please repeat?"
 
@@ -483,9 +528,19 @@ class EVAgent:
             try:
                 return self._chat_gemini_fallback(start_time)
             except Exception as gemini_err:
+                if os.getenv("GROQ_API_KEY"):
+                    try:
+                        return self._chat_groq_fallback(start_time)
+                    except Exception as groq_err:
+                        logger.warning(f"[Groq Fallback] Failed: {groq_err}")
+
                 self.last_latency_ms = int((time.time() - start_time) * 1000)
                 logger.error(f"AI Cloud Engine rate-limited: {gemini_err}")
-                return "The cloud API rate limit was temporarily reached. Please retry in a few seconds, or run 'ollama serve' in your terminal for 100% free, unlimited local processing!"
+                return (
+                    "Cloud API rate limit reached for your Gemini key. "
+                    "To get 100% UNLIMITED, free queries right now, run 'ollama serve' in your terminal "
+                    "or add a secondary GEMINI_API_KEY_2 in your .env file!"
+                )
 
     def reset_history(self):
         """Resets conversation history."""
