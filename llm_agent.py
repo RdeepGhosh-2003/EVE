@@ -252,7 +252,7 @@ class EVAgent:
         last_err = None
         for key in keys_pool:
             try:
-                client = self.gemini_client if key == "default" else genai.Client(api_key=key)
+                client = self.gemini_client if self.gemini_client else genai.Client(api_key=key)
             except Exception:
                 continue
 
