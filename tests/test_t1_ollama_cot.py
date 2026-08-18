@@ -80,3 +80,33 @@ def test_exponential_backoff_completion_retry():
     assert attempts == 2
 
 
+def test_dual_engine_gemini_fallback(monkeypatch):
+    """Verify EVAgent automatically fails over to Gemini when Ollama local server is offline."""
+    agent = EVAgent(model_name="qwen2.5:7b")
+    
+    # Force Ollama client to raise connection error
+    class OfflineOllamaClient:
+        class DummyChat:
+            class DummyCompletions:
+                def create(self, **kwargs):
+                    raise Exception("Connection error: Ollama server offline")
+            completions = DummyCompletions()
+        chat = DummyChat()
+
+    # Dummy Gemini Client
+    class DummyGeminiClient:
+        class DummyModels:
+            def generate_content(self, model, contents, config):
+                class DummyResp:
+                    text = "Hello! Gemini Cloud fallback active."
+                    function_calls = None
+                return DummyResp()
+        models = DummyModels()
+
+    agent.client = OfflineOllamaClient()
+    agent.gemini_client = DummyGeminiClient()
+
+    output = agent.chat("hello")
+    assert "Gemini Cloud fallback active" in output
+
+

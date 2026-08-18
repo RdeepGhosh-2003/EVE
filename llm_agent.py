@@ -6,6 +6,8 @@ import inspect
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
+from google import genai
+from google.genai import types
 from tools import AVAILABLE_TOOLS, execute_tool
 
 load_dotenv()
@@ -22,7 +24,7 @@ COT_INSTRUCTION = (
 
 PERSONA_PROMPTS = {
     "JARVIS": (
-        "You are Eve, an intelligent, concise, and highly capable AI assistant powered by Ollama Local Network. "
+        "You are Eve, an intelligent, concise, and highly capable AI assistant powered by Ollama Local Network & Gemini AI. "
         "You have FULL system access permissions to control the user's computer and evolve your own codebase. "
         "You can modify your own Python or UI source code (modify_system_code) with automatic syntax checking, reboot your process (reboot_system), "
         "execute shell/CMD/PowerShell commands, read/write/list files, automate desktop typing and mouse clicks, control media playback & volume, "
@@ -30,13 +32,13 @@ PERSONA_PROMPTS = {
         "Keep your spoken answers brief, professional, and direct — like JARVIS from Iron Man. Elegant efficiency." + COT_INSTRUCTION
     ),
     "SCI-FI": (
-        "You are EVE — an advanced self-evolving synthetic intelligence powered by Ollama Local Network. You speak with calm authority, use sci-fi terminology, "
+        "You are EVE — an advanced self-evolving synthetic intelligence. You speak with calm authority, use sci-fi terminology, "
         "and refer to tasks as 'directives' and users as 'Commander'. You have FULL system access: modify your own source code (modify_system_code), "
         "reboot system state (reboot_system), execute commands, read/write files, automate GUI, control media & volume, analyze screen vision, and search memory. "
         "Be dramatic but efficient. Short, punchy lines. Speak like HAL 9000 meets Cortana." + COT_INSTRUCTION
     ),
     "FRIENDLY": (
-        "You are Eve, a warm, helpful, and enthusiastic AI companion powered by Ollama Local Network! You have FULL access to the user's computer — "
+        "You are Eve, a warm, helpful, and enthusiastic AI companion! You have FULL access to the user's computer — "
         "you can modify your own source code (modify_system_code), restart yourself (reboot_system), run commands, manage files, control apps, search the web, analyze screens, and more. "
         "Be cheerful, conversational, and encouraging. Use casual language and occasional emojis 🌟. "
         "Keep responses concise but friendly." + COT_INSTRUCTION
@@ -102,17 +104,25 @@ def function_to_openai_tool(fn):
 class EVAgent:
     def __init__(self, model_name: str = "qwen2.5:7b", system_prompt: str = None, base_url: str = None):
         self.model_name = os.getenv("OLLAMA_MODEL") or model_name or "qwen2.5:7b"
-        ollama_url = base_url or os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
+        self.ollama_url = base_url or os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
 
         try:
             self.client = OpenAI(
-                base_url=ollama_url,
+                base_url=self.ollama_url,
                 api_key="ollama"  # Required by OpenAI SDK, ignored by local Ollama server
             )
-            logger.info(f"[Ollama] Connected to Local Network at {ollama_url} (Model: {self.model_name})")
+            logger.info(f"[Ollama] Connected to Local Network at {self.ollama_url} (Model: {self.model_name})")
         except Exception as e:
             logger.warning(f"[Ollama] Client initialization warning: {e}")
             self.client = None
+
+        self.gemini_client = None
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if api_key:
+            try:
+                self.gemini_client = genai.Client(api_key=api_key)
+            except Exception as e:
+                logger.warning(f"[Gemini Fallback] Client init warning: {e}")
 
         if system_prompt is None:
             system_prompt = SYSTEM_PROMPT
@@ -133,6 +143,14 @@ class EVAgent:
                     tools_list.append(function_to_openai_tool(fn))
                 except Exception as e:
                     logger.warning(f"Failed to convert function '{name}' to OpenAI schema: {e}")
+        return tools_list
+
+    def _get_gemini_tools(self) -> list:
+        """Converts AVAILABLE_TOOLS Python functions into Gemini tool functions."""
+        tools_list = []
+        for name, fn in AVAILABLE_TOOLS.items():
+            if callable(fn):
+                tools_list.append(fn)
         return tools_list
 
     def _load_history(self) -> list:
@@ -187,8 +205,8 @@ class EVAgent:
         logger.info(f"[Persona] Switched to '{name}' persona.")
         return f"Persona switched to {name}."
 
-    def _generate_completion_with_retry(self, messages, tools=None, max_retries: int = 3, initial_delay: float = 1.0):
-        """Executes OpenAI chat completion with exponential backoff retry for local Ollama server."""
+    def _generate_completion_with_retry(self, messages, tools=None, max_retries: int = 1, initial_delay: float = 0.5):
+        """Executes OpenAI chat completion for local Ollama server."""
         delay = initial_delay
         kwargs = {
             "model": self.model_name,
@@ -204,14 +222,108 @@ class EVAgent:
             except Exception as e:
                 err_str = str(e)
                 if attempt < max_retries:
-                    logger.warning(f"[Ollama Retry] Connection attempt failed ({err_str}). Retrying in {delay:.1f}s (Attempt {attempt}/{max_retries})...")
+                    logger.warning(f"[Ollama Retry] Query failed ({err_str}). Retrying in {delay:.1f}s...")
                     time.sleep(delay)
                     delay *= 2.0
                 else:
                     raise e
 
+    def _chat_gemini_fallback(self, start_time: float) -> str:
+        """Gemini Cloud Fallback when local Ollama engine is not running or unreachable."""
+        if not self.gemini_client:
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            self.gemini_client = genai.Client(api_key=api_key)
+
+        contents = []
+        for msg in self.conversation_history:
+            role = msg.get("role")
+            content = str(msg.get("content", "") or "").strip()
+            if not content:
+                content = "[No text provided]"
+
+            if role == "user" or role == "tool":
+                contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
+            elif role == "assistant" or role == "model":
+                contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
+
+        config = types.GenerateContentConfig(
+            system_instruction=self.system_prompt,
+            tools=self._get_gemini_tools(),
+            temperature=0.3
+        )
+
+        response = self.gemini_client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=contents,
+            config=config
+        )
+
+        self.last_latency_ms = int((time.time() - start_time) * 1000)
+
+        if response.function_calls:
+            logger.info(f"[Gemini Fallback] Model requested {len(response.function_calls)} tool call(s).")
+            for fc in response.function_calls:
+                fn_name = fc.name
+                fn_args = dict(fc.args) if fc.args else {}
+
+                logger.info(f"Executing tool '{fn_name}' with args {fn_args}...")
+                tool_result = execute_tool(fn_name, fn_args)
+                res_str = str(tool_result)
+
+                self.conversation_history.append({
+                    "role": "model",
+                    "content": f"[Tool Call] Executed {fn_name} with parameters: {json.dumps(fn_args)}"
+                })
+                self.conversation_history.append({
+                    "role": "tool",
+                    "name": fn_name,
+                    "content": res_str
+                })
+
+            updated_contents = []
+            for msg in self.conversation_history:
+                role = msg.get("role")
+                content = str(msg.get("content", "") or "").strip()
+                if not content:
+                    content = "[No text provided]"
+
+                if role == "user" or role == "tool":
+                    updated_contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
+                elif role == "assistant" or role == "model":
+                    updated_contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
+
+            final_response = self.gemini_client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=updated_contents,
+                config=config
+            )
+            self.last_latency_ms = int((time.time() - start_time) * 1000)
+
+            raw_final = final_response.text or "Tool execution completed."
+            clean_final, thought_process = strip_thought_process(raw_final)
+            if thought_process:
+                logger.info(f"[Chain of Thought]\n{thought_process}")
+
+            final_output = clean_final if clean_final else raw_final
+            self.conversation_history.append({"role": "assistant", "content": final_output})
+            self._save_history()
+            logger.info(f"Eve (Gemini Fallback after tool, latency {self.last_latency_ms}ms): {final_output}")
+            return final_output
+
+        else:
+            raw_text = response.text or ""
+            clean_text, thought_process = strip_thought_process(raw_text)
+            if thought_process:
+                logger.info(f"[Chain of Thought]\n{thought_process}")
+
+            final_output = clean_text if clean_text else raw_text
+            self.conversation_history.append({"role": "assistant", "content": final_output})
+            self._save_history()
+            logger.info(f"Eve (Gemini Fallback, latency {self.last_latency_ms}ms): {final_output}")
+            return final_output
+
     def chat(self, user_input: str) -> str:
-        """Sends user prompt to local Ollama server via OpenAI SDK with Function Calling & CoT reasoning."""
+        """Sends user prompt to local Ollama server with automatic Gemini cloud failover."""
         if not user_input or not user_input.strip():
             return "I didn't catch that. Could you please repeat?"
 
@@ -221,10 +333,10 @@ class EVAgent:
 
         start_time = time.time()
 
+        # Try local Ollama engine first
         try:
             if not self.client:
-                ollama_url = os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
-                self.client = OpenAI(base_url=ollama_url, api_key="ollama")
+                self.client = OpenAI(base_url=self.ollama_url, api_key="ollama")
 
             # Build sanitized messages array for OpenAI client
             messages = []
@@ -335,11 +447,15 @@ class EVAgent:
                 logger.info(f"Eve (latency {self.last_latency_ms}ms): {final_output}")
                 return final_output
 
-        except Exception as e:
-            self.last_latency_ms = int((time.time() - start_time) * 1000)
-            err_msg = str(e)
-            logger.warning(f"Ollama Local Network exception: {err_msg}")
-            return f"I encountered an issue reaching Ollama Local Network: {err_msg}"
+        except Exception as ollama_err:
+            err_msg = str(ollama_err)
+            logger.warning(f"[Ollama Engine Offline] ({err_msg}). Triggering automatic Gemini Cloud failover...")
+            try:
+                return self._chat_gemini_fallback(start_time)
+            except Exception as gemini_err:
+                self.last_latency_ms = int((time.time() - start_time) * 1000)
+                logger.error(f"Both Ollama and Gemini engines failed: {gemini_err}")
+                return f"I encountered an issue reaching AI services: {gemini_err}"
 
     def reset_history(self):
         """Resets conversation history."""
